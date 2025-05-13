@@ -12,18 +12,38 @@ model_name = input("Enter your Shape Model (default: shapesinc/chatgpt-0sob): ")
 if not model_name:
     model_name = "shapesinc/chatgpt-0sob"
 
+shape_id = model_name.split("/")[-1]
+log_dir = os.path.join("chatlogs", shape_id)
+os.makedirs(log_dir, exist_ok=True)
+
+timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+log_txt = os.path.join(log_dir, f"{timestamp}_{shape_id}.txt")
+log_json = os.path.join(log_dir, f"{timestamp}_{shape_id}.json")
+play_audio = False
+context_mode = "nonintrusive"  # Options: nonintrusive, intrusive, incognito
+
 shapes_client = OpenAI(
     api_key=api_key,
     base_url="https://api.shapes.inc/v1/",
 )
 
-# --- Conversation Tracking ---
-conversation = [{"role": "user", "content": "Hello"}]
-timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-log_txt = f"chatlog_{timestamp}.txt"
-log_json = f"chatlog_{timestamp}.json"
-log_dir = "."
-play_audio = False  # Audio playback is OFF by default
+# --- Load Context Logs Based on Mode ---
+def load_context():
+    convo = [{"role": "user", "content": "Hello"}]
+    if context_mode == "incognito":
+        return convo
+
+    base_dir = "chatlogs" if context_mode == "intrusive" else log_dir
+    for root, _, files in os.walk(base_dir):
+        for f in sorted(files):
+            if f.endswith(".json"):
+                try:
+                    with open(os.path.join(root, f), "r") as file:
+                        data = json.load(file)
+                        convo.extend(data[-4:])
+                except:
+                    continue
+    return convo
 
 # --- Chat Handler ---
 def chat_with_model(convo, model):
@@ -36,7 +56,7 @@ def chat_with_model(convo, model):
     except Exception as e:
         return f"[ERROR] {str(e)}"
 
-# --- Play Audio from MP3 URL (fixed 403 error) ---
+# --- Play Audio from MP3 URL ---
 def play_mp3_from_url(text):
     if not play_audio:
         return
@@ -45,10 +65,7 @@ def play_mp3_from_url(text):
         url = match.group(0)
         local_file = "/tmp/shape_speech.mp3"
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0"}
-            )
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req) as response, open(local_file, 'wb') as out_file:
                 out_file.write(response.read())
             subprocess.run(["mpg123", local_file], check=False)
@@ -57,6 +74,8 @@ def play_mp3_from_url(text):
 
 # --- Save Logs ---
 def save_logs():
+    if context_mode == "incognito":
+        return
     with open(log_txt, "w") as f:
         for msg in conversation:
             f.write(f"{msg['role'].capitalize()}: {msg['content']}\n")
@@ -65,7 +84,10 @@ def save_logs():
 
 # --- History Functions ---
 def list_logs():
-    files = sorted([f for f in os.listdir(log_dir) if f.startswith("chatlog_") and f.endswith(".txt")])
+    if not os.path.isdir(log_dir):
+        print("[No logs directory found]")
+        return []
+    files = sorted([f for f in os.listdir(log_dir) if f.endswith(".txt")])
     if not files:
         print("[No saved chats found]")
         return []
@@ -76,7 +98,7 @@ def list_logs():
 def read_log(index):
     files = list_logs()
     if 0 <= index < len(files):
-        with open(files[index], "r") as f:
+        with open(os.path.join(log_dir, files[index]), "r") as f:
             print(f"\n--- {files[index]} ---")
             print(f.read())
             print("------")
@@ -84,15 +106,16 @@ def read_log(index):
         print("[!] Invalid index.")
 
 def load_json_log(index):
-    files = sorted([f for f in os.listdir(log_dir) if f.startswith("chatlog_") and f.endswith(".json")])
+    files = sorted([f for f in os.listdir(log_dir) if f.endswith(".json")])
     if 0 <= index < len(files):
-        with open(files[index], "r") as f:
+        with open(os.path.join(log_dir, files[index]), "r") as f:
             return json.load(f)
     else:
         print("[!] Invalid index.")
         return None
 
-# --- Intro & First Response ---
+# --- Load and Respond ---
+conversation = load_context()
 print("\n[Assistant is loading...]\n")
 initial_reply = chat_with_model(conversation, model_name)
 print("AI:", initial_reply)
@@ -107,14 +130,15 @@ help_text = """
 /save                  → Save chat to log files now
 /audio on              → Turn ON voice playback
 /audio off             → Turn OFF voice playback
-/history               → List saved chats
+/context <mode>        → Set context mode: intrusive, nonintrusive, incognito
+/history               → List saved chats for this character
 /history read <index>  → Read a saved chat
 /history load <index>  → Resume a saved chat
 /help                  → Show this help message
 """
 print(help_text)
 
-# --- Main Chat Loop ---
+# --- Main Loop ---
 while True:
     user_input = input("You: ").strip()
 
@@ -127,6 +151,12 @@ while True:
         new_model = user_input[8:].strip()
         if new_model:
             model_name = new_model
+            shape_id = model_name.split("/")[-1]
+            log_dir = os.path.join("chatlogs", shape_id)
+            os.makedirs(log_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_txt = os.path.join(log_dir, f"{timestamp}_{shape_id}.txt")
+            log_json = os.path.join(log_dir, f"{timestamp}_{shape_id}.json")
             print(f"✔ Model changed to: {model_name}")
         else:
             print("[!] No model specified.")
@@ -140,6 +170,15 @@ while True:
     elif user_input.lower() == "/audio off":
         play_audio = False
         print("🔇 Audio playback is now OFF.")
+        continue
+
+    elif user_input.lower().startswith("/context "):
+        mode = user_input.split()[1].lower()
+        if mode in ["intrusive", "nonintrusive", "incognito"]:
+            context_mode = mode
+            print(f"🧠 Context mode set to: {context_mode}")
+        else:
+            print("[!] Invalid context mode. Choose: intrusive, nonintrusive, incognito.")
         continue
 
     elif user_input.lower() == "/help":
