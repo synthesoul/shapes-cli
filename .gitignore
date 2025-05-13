@@ -1,6 +1,5 @@
 *.json
 *.txt
-*.log
 shape-env/
-.env
 __pycache__/
+.env
