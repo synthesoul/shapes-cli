@@ -1,5 +1,5 @@
-*.json
-*.txt
+chatlogs/
 shape-env/
 __pycache__/
+*.mp3
 .env
