@@ -1,5 +1,18 @@
-chatlogs/
-shape-env/
+# Python bytecode
 __pycache__/
-*.mp3
-.env
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Runtime artifacts
+chatlogs/
+*.log
